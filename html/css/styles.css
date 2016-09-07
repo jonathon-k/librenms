@@ -315,6 +315,7 @@ A.purple:visited, a.purple, .purple { color: #740074; }
 .bluebg  { background-color: #aaaaff; }
 .greenbg { background-color: #aaffaa; }
 .greybg  { background-color: #DEEFEF; }
+.blackbg { background-color: #000000; }
 
 .selector {
   width:275px;
