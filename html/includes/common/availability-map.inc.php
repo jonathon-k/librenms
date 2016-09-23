@@ -58,22 +58,9 @@ if (defined('SHOW_SETTINGS')) {
     $showDisabledAndIgnored =  isset($widget_settings['show_disabled_and_ignored']) && $widget_settings['show_disabled_and_ignored'];
 
     $common_output[] = '
-    <div class="form-group">
-        <label for="show_disabled_and_ignored" class="col-sm-4 control-label">Disabled and ignored</label>
-        <div class="col-sm-6">
-            <input type="checkbox" class="form-control" name="show_disabled_and_ignored" value="1" ' .($showDisabledAndIgnored ? 'checked' : ''). '>
-        </div>
-    </div>
 
     <div class="form-group">
-        <label for="tile_width" class="col-sm-4 control-label">Tile width</label>
-        <div class="col-sm-6">
-            <input class="form-control" name="tile_width" placeholder="I.e 10" value="'.$current_width.'">
-        </div>
-    </div>
-
-    <div class="form-group">
-        <label for="show_services" class="col-sm-4 control-label">Show</label>
+        <label for="show_services" class="col-sm-4 control-label availability-map-widget-header">Show</label>
         <div class="col-sm-6">
             <select class="form-control" name="mode">';
 
@@ -91,10 +78,18 @@ if (defined('SHOW_SETTINGS')) {
     }
     $common_output[] ='
             </select>
-            <div class="col-sm-2">
-                <button type="submit" class="btn btn-default">Set</button>
-            </div>
         </div>
+    </div>
+    <div class="form-group">
+        <label for="show_disabled_and_ignored" class="col-sm-4 control-label availability-map-widget-header">Disabled and ignored</label>
+        <div class="col-sm-6">
+            <input type="checkbox" class="form-control" name="show_disabled_and_ignored" value="1" ' .($showDisabledAndIgnored ? 'checked' : ''). '>
+        </div>
+    </div>
+    <div class="col-sm-6"></div>
+    <div class="col-sm-2">
+        <button type="submit" class="btn btn-default">Set</button>
+    </div>
     </form>';
 } else {
     require_once 'includes/object-cache.inc.php';
