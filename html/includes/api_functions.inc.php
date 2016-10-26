@@ -15,7 +15,11 @@
 require_once '../includes/functions.php';
 require_once '../includes/device-groups.inc.php';
 if (file_exists('../html/includes/authentication/'.$config['auth_mechanism'].'.inc.php')) {
-       include '../html/includes/authentication/'.$config['auth_mechanism'].'.inc.php';
+    include '../html/includes/authentication/'.$config['auth_mechanism'].'.inc.php';
+}
+
+if (file_exists('../html/includes/authorization/'.$config['authorization_mechanism'].'.inc.php')) {
+    include '../html/includes/authorization/'.$config['authorization_mechanism'].'.inc.php';
 }
 
 function authToken(\Slim\Route $route)

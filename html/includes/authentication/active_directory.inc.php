@@ -33,16 +33,25 @@ function authenticate($username, $password)
                     $ldap_connection,
                     $config['auth_ad_base_dn'],
                     get_auth_ad_user_filter($username),
-                    array('memberOf')
+                    array('memberof', 'mail', 'displayname')
                 );
+                
                 $entries = ldap_get_entries($ldap_connection, $search);
                 unset($entries[0]['memberof']['count']); //remove the annoying count
+                $group_list = $entries[0]['memberof'];
+                $email = $entries[0]['mail'][0];
+                $display_name = $entries[0]['displayname'][0];
 
-                foreach ($entries[0]['memberof'] as $entry) {
+                foreach ($group_list as $entry) {
                     $group_cn = get_cn($entry);
                     if (isset($config['auth_ad_groups'][$group_cn]['level'])) {
                         // user is in one of the defined groups
-                        adduser($username);
+                        $highest_userlevel = get_maxuserlevel($group_list);
+                        if (user_exists($username)) {
+                            update_user(get_userid($username), $display_name, $highest_userlevel, 0, $email);
+                        } else {
+                            adduser($username, '', $highest_userlevel, $email, $display_name, 0);
+                        }
                         return 1;
                     }
                 }
@@ -64,6 +73,7 @@ function authenticate($username, $password)
                 return 1;
             }
         }
+    die("username, password or bind failed");
     }
 
     if (!isset($password) || $password == '') {
@@ -77,13 +87,6 @@ function authenticate($username, $password)
 
     return 0;
 }
-
-function reauthenticate()
-{
-    // not supported so return 0
-    return 0;
-}
-
 
 function passwordscanchange()
 {
@@ -99,210 +102,10 @@ function changepassword()
 }
 
 
-function auth_usermanagement()
-{
-    // not supported so return 0
-    return 0;
-}
-
-
-function adduser($username, $level = 0, $email = '', $realname = '', $can_modify_passwd = 0, $description = '', $twofactor = 0)
-{
-    // Check to see if user is already added in the database
-    if (!user_exists_in_db($username)) {
-        $userid = dbInsert(array('username' => $username, 'realname' => $realname, 'email' => $email, 'descr' => $description, 'level' => $level, 'can_modify_passwd' => $can_modify_passwd, 'twofactor' => $twofactor, 'user_id' => get_userid($username)), 'users');
-        if ($userid == false) {
-            return false;
-        } else {
-            foreach (dbFetchRows('select notifications.* from notifications where not exists( select 1 from notifications_attribs where notifications.notifications_id = notifications_attribs.notifications_id and notifications_attribs.user_id = ?) order by notifications.notifications_id desc', array($userid)) as $notif) {
-                dbInsert(array('notifications_id'=>$notif['notifications_id'],'user_id'=>$userid,'key'=>'read','value'=>1), 'notifications_attribs');
-            }
-        }
-        return $userid;
-    } else {
-        return false;
-    }
-}
-
-function user_exists_in_db($username)
-{
-    $return = dbFetchCell('SELECT COUNT(*) FROM users WHERE username = ?', array($username), true);
-    return $return;
-}
-
-function user_exists($username)
-{
-    global $config, $ldap_connection;
-
-    $search = ldap_search(
-        $ldap_connection,
-        $config['auth_ad_base_dn'],
-        get_auth_ad_user_filter($username),
-        array('samaccountname')
-    );
-    $entries = ldap_get_entries($ldap_connection, $search);
-
-
-    if ($entries['count']) {
-        return 1;
-    }
-
-    return 0;
-}
-
-
-function get_userlevel($username)
-{
-    global $config, $ldap_connection;
-
-    $userlevel = 0;
-    if (isset($config['auth_ad_require_groupmembership']) && $config['auth_ad_require_groupmembership'] == 0) {
-        if (isset($config['auth_ad_global_read']) && $config['auth_ad_global_read'] === 1) {
-            $userlevel = 5;
-        }
-    }
-
-    // Find all defined groups $username is in
-    $search = ldap_search(
-        $ldap_connection,
-        $config['auth_ad_base_dn'],
-        get_auth_ad_user_filter($username),
-        array('memberOf')
-    );
-    $entries = ldap_get_entries($ldap_connection, $search);
-    unset($entries[0]['memberof']['count']);
-
-    // Loop the list and find the highest level
-    foreach ($entries[0]['memberof'] as $entry) {
-        $group_cn = get_cn($entry);
-        if (isset($config['auth_ad_groups'][$group_cn]['level']) &&
-             $config['auth_ad_groups'][$group_cn]['level'] > $userlevel) {
-            $userlevel = $config['auth_ad_groups'][$group_cn]['level'];
-        }
-    }
-
-    return $userlevel;
-}
-
-
-function get_userid($username)
-{
-    global $config, $ldap_connection;
-
-    $attributes = array('objectsid');
-    $search = ldap_search(
-        $ldap_connection,
-        $config['auth_ad_base_dn'],
-        get_auth_ad_user_filter($username),
-        $attributes
-    );
-    $entries = ldap_get_entries($ldap_connection, $search);
-
-    if ($entries['count']) {
-        return preg_replace('/.*-(\d+)$/', '$1', sid_from_ldap($entries[0]['objectsid'][0]));
-    }
-
-    return -1;
-}
-
-
-function deluser($username)
-{
-    dbDelete('bill_perms', '`user_name` =  ?', array($username));
-    dbDelete('devices_perms', '`user_name` =  ?', array($username));
-    dbDelete('ports_perms', '`user_name` =  ?', array($username));
-    dbDelete('users_prefs', '`user_name` =  ?', array($username));
-    dbDelete('users', '`user_name` =  ?', array($username));
-    return dbDelete('users', '`username` =  ?', array($username));
-}
-
-
-function get_userlist()
-{
-    global $config, $ldap_connection;
-    $userlist = array();
-    $userhash = array();
-
-    $ldap_groups = get_group_list();
-
-    foreach ($ldap_groups as $ldap_group) {
-        $search_filter = "(memberOf=$ldap_group)";
-        if ($config['auth_ad_user_filter']) {
-            $search_filter = "(&{$config['auth_ad_user_filter']}$search_filter)";
-        }
-        $search = ldap_search($ldap_connection, $config['auth_ad_base_dn'], $search_filter, array('samaccountname','displayname','objectsid','mail'));
-        $results = ldap_get_entries($ldap_connection, $search);
-
-        foreach ($results as $result) {
-            if (isset($result['samaccountname'][0])) {
-                $userid = preg_replace(
-                    '/.*-(\d+)$/',
-                    '$1',
-                    sid_from_ldap($result['objectsid'][0])
-                );
-
-                // don't make duplicates, user may be member of more than one group
-                $userhash[$result['samaccountname'][0]] = array(
-                    'realname' => $result['displayName'][0],
-                    'user_id'  => $userid,
-                    'email'    => $result['mail'][0]
-                );
-            }
-        }
-    }
-
-    foreach (array_keys($userhash) as $key) {
-        $userlist[] = array(
-            'username' => $key,
-            'realname' => $userhash[$key]['realname'],
-            'user_id'  => $userhash[$key]['user_id'],
-            'email'    => $userhash[$key]['email']
-        );
-    }
-
-    return $userlist;
-}
-
-
 function can_update_users()
 {
     // not supported so return 0
     return 0;
-}
-
-
-function get_user($user_id)
-{
-    // not supported so return 0
-    return dbFetchRow('SELECT * FROM `users` WHERE `user_id` = ?', array($user_id), true);
-}
-
-
-function update_user($user_id, $realname, $level, $can_modify_passwd, $email)
-{
-    dbUpdate(array('realname' => $realname, 'can_modify_passwd' => $can_modify_passwd, 'email' => $email), 'users', '`user_id` = ?', array($user_id));
-}
-
-
-function get_fullname($username)
-{
-    global $config, $ldap_connection;
-
-    $attributes = array('name');
-    $result = ldap_search(
-        $ldap_connection,
-        $config['auth_ad_base_dn'],
-        get_auth_ad_user_filter($username),
-        $attributes
-    );
-    $entries = ldap_get_entries($ldap_connection, $result);
-    if ($entries['count'] > 0) {
-        $membername = $entries[0]['name'][0];
-    } else {
-        $membername = $username;
-    }
-
-    return $membername;
 }
 
 
@@ -331,6 +134,25 @@ function get_group_list()
 
     return $ldap_groups;
 }
+
+function get_maxuserlevel($member_groups)
+{
+    global $config;
+
+    $userlevel = 0;
+
+    // Loop the list and find the highest level
+    foreach ($member_groups as $entry) {
+        $group_cn = get_cn($entry);
+        if (isset($config['auth_ad_groups'][$group_cn]['level']) &&
+            $config['auth_ad_groups'][$group_cn]['level'] > $userlevel) {
+            $userlevel = $config['auth_ad_groups'][$group_cn]['level'];
+        }
+    }
+
+    return $userlevel;
+}
+
 
 function get_dn($samaccountname)
 {
